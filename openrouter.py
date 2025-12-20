@@ -15,7 +15,8 @@ async def query_model(model: str, messages: list, timeout: float = 60.0):
     """
 
     if not OPENROUTER_API_KEY:
-        return None
+        print("❌ API key is missing!")
+        return {"error": "API key not configured"}
 
     payload = {
         "model": model,
@@ -31,8 +32,13 @@ async def query_model(model: str, messages: list, timeout: float = 60.0):
                 json=payload
             )
 
+        print(f"📡 Status Code: {response.status_code}")
+        print(f"📡 Response: {response.text[:500]}")  # First 500 chars
+        
         if response.status_code != 200:
-            return None
+            error_msg = response.text
+            print(f"❌ Error Response: {error_msg}")
+            return {"error": f"API returned status {response.status_code}: {error_msg}"}
 
         data = response.json()
 
@@ -40,5 +46,9 @@ async def query_model(model: str, messages: list, timeout: float = 60.0):
             "content": data["choices"][0]["message"]["content"]
         }
 
-    except Exception:
-        return None
+    except httpx.TimeoutException:
+        print("❌ Request timed out")
+        return {"error": "Request timed out after 60 seconds"}
+    except Exception as e:
+        print(f"❌ Exception occurred: {type(e).__name__}: {str(e)}")
+        return {"error": f"Exception: {str(e)}"}
