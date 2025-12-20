@@ -1,5 +1,5 @@
 import streamlit as st
-from council import run_council
+from council import run_full_council
 from openrouter import call_model
 
 st.set_page_config(page_title="LLM Council Prototype")
