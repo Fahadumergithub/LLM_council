@@ -4,10 +4,9 @@ import streamlit as st
 OPENROUTER_API_KEY = st.secrets["OPENROUTER_API_KEY"]
 OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
 
-# Models (kept for future council expansion)
+# Free model for testing
 COUNCIL_MODELS = [
-    "google/gemini-2.5-flash"
+    "nex-agi/deepseek-v3.1-nex-n1:free"
 ]
 
-CHAIRMAN_MODEL = "google/gemini-2.5-flash"
-
+CHAIRMAN_MODEL = "nex-agi/deepseek-v3.1-nex-n1:free"
