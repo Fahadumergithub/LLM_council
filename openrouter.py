@@ -1,5 +1,4 @@
 import httpx
-import os
 from .config import OPENROUTER_API_KEY, OPENROUTER_API_URL
 
 HEADERS = {
@@ -11,13 +10,17 @@ HEADERS = {
 
 
 async def query_model(model: str, messages: list, timeout: float = 60.0):
+    """
+    Query a single model via OpenRouter.
+    """
+
     if not OPENROUTER_API_KEY:
         return None
 
     payload = {
         "model": model,
         "messages": messages,
-        "temperature": 0.7,
+        "temperature": 0.7
     }
 
     try:
@@ -25,7 +28,7 @@ async def query_model(model: str, messages: list, timeout: float = 60.0):
             response = await client.post(
                 OPENROUTER_API_URL,
                 headers=HEADERS,
-                json=payload,
+                json=payload
             )
 
         if response.status_code != 200:
