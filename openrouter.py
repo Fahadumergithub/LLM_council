@@ -1,5 +1,5 @@
 import httpx
-from .config import OPENROUTER_API_KEY, OPENROUTER_API_URL
+from config import OPENROUTER_API_KEY, OPENROUTER_API_URL
 
 HEADERS = {
     "Authorization": f"Bearer {OPENROUTER_API_KEY}",
