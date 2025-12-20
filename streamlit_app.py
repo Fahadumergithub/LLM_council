@@ -1,71 +1,27 @@
 import streamlit as st
 import asyncio
+from openrouter import query_model
 
-# Import the correct function
-from council import run_full_council
+st.set_page_config(page_title="Gemini Test", layout="centered")
 
-st.set_page_config(
-    page_title="LLM Council",
-    layout="wide"
-)
+st.title("Gemini-only Test")
+st.write("This verifies OpenRouter + Gemini connectivity.")
 
-st.title("LLM Council Prototype")
-st.write(
-    "This app compares responses from multiple LLMs, "
-    "has them rank each other, and produces a final synthesized answer."
-)
+query = st.text_input("Enter your question:")
 
-# User input
-user_query = st.text_area(
-    "Enter your question:",
-    height=120,
-    placeholder="Ask a question to the LLM Council..."
-)
+if st.button("Run"):
+    if not query.strip():
+        st.warning("Please enter a question.")
+    else:
+        with st.spinner("Querying Gemini..."):
+            async def run():
+                messages = [{"role": "user", "content": query}]
+                return await query_model("google/gemini-2.5-flash", messages)
 
-run_button = st.button("Run Council")
+            response = asyncio.run(run())
 
-if run_button and user_query.strip():
-
-    with st.spinner("Running LLM Council..."):
-        try:
-            # Run async council pipeline
-            stage1, stage2, stage3, metadata = asyncio.run(
-                run_full_council(user_query)
-            )
-
-            st.success("Council completed successfully")
-
-            # -------------------------
-            # Stage 3 – Final Answer
-            # -------------------------
-            st.subheader("Final Synthesized Answer")
-            st.markdown(stage3["response"])
-
-            # -------------------------
-            # Stage 1 – Individual Responses
-            # -------------------------
-            st.subheader("Stage 1: Individual Model Responses")
-
-            for item in stage1:
-                with st.expander(f"Model: {item['model']}"):
-                    st.markdown(item["response"])
-
-            # -------------------------
-            # Aggregate Rankings
-            # -------------------------
-            if metadata.get("aggregate_rankings"):
-                st.subheader("Aggregate Rankings (Peer Review)")
-
-                for rank in metadata["aggregate_rankings"]:
-                    st.write(
-                        f"**{rank['model']}** — "
-                        f"Average Rank: {rank['average_rank']} "
-                        f"(n={rank['rankings_count']})"
-                    )
-
-        except Exception as e:
-            st.error("An error occurred while running the council.")
-            st.exception(e)
-
-else:
-    st.info("Enter a question and click **Run Council**.")
+        if response is None:
+            st.error("Gemini did not return a response.")
+        else:
+            st.success("Response received")
+            st.write(response.get("content", "No content"))
