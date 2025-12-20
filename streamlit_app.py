@@ -2,30 +2,33 @@ import streamlit as st
 import asyncio
 from openrouter import query_model
 
-st.set_page_config(page_title="Gemini-only Test", layout="centered")
+st.set_page_config(
+    page_title="Gemini-only Test",
+    layout="centered"
+)
 
 st.title("Gemini-only Test")
 st.write("This verifies OpenRouter + Gemini connectivity.")
 
-query = st.text_input("Enter your question:")
+question = st.text_input("Enter your question:")
 
 if st.button("Run"):
-    if not query.strip():
+    if not question.strip():
         st.warning("Please enter a question.")
     else:
         with st.spinner("Querying Gemini..."):
 
-            async def run():
-                messages = [{"role": "user", "content": query}]
+            async def run_query():
+                messages = [{"role": "user", "content": question}]
                 return await query_model(
                     model="google/gemini-2.5-flash",
                     messages=messages
                 )
 
-            response = asyncio.run(run())
+            result = asyncio.run(run_query())
 
-        if response is None:
+        if result is None:
             st.error("Gemini did not return a response.")
         else:
             st.success("Response received")
-            st.write(response.get("content", "No content returned"))
+            st.write(result.get("content", "No content returned"))
