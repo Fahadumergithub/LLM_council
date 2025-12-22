@@ -56,7 +56,7 @@ RESPONSES:
         label = chr(65 + i)  # A, B, C, D
         ranking_prompt += f"\n--- RESPONSE {label} ---\n{resp['response']}\n"
     
-    ranking_prompt += f"""
+    ranking_prompt += """
 
 Provide your ranking in this EXACT format:
 RANKING: [Letter of best], [Letter of 2nd best], [Letter of 3rd best], [Letter of worst]
