@@ -1,31 +1,13 @@
 import streamlit as st
 import requests
-import json
 import time
 from config import OPENROUTER_API_KEY, COUNCIL_MODELS, PRIMARY_JUDGE, FALLBACK_JUDGES
 
-st.set_page_config(page_title="LLM Council", page_icon="⚖️", layout="wide")
+st.set_page_config(page_title="LLM Council", layout="wide")
 
-# Custom Styling for that "Clean Previous Version" Look
-st.markdown("""
-    <style>
-    .council-card {
-        padding: 20px;
-        border-radius: 12px;
-        background-color: #ffffff;
-        border: 1px solid #e0e0e0;
-        box-shadow: 2px 2px 10px rgba(0,0,0,0.05);
-        height: 100%;
-    }
-    .verdict-box {
-        background-color: #fff9f0;
-        padding: 30px;
-        border-left: 8px solid #ffa94d;
-        border-radius: 15px;
-        margin-top: 20px;
-    }
-    </style>
-""", unsafe_allow_html=True)
+# Persistent Debug Log
+if "debug_log" not in st.session_state:
+    st.session_state.debug_log = []
 
 def call_llm(model_id, prompt, system_prompt="You are a helpful assistant."):
     headers = {
@@ -41,70 +23,73 @@ def call_llm(model_id, prompt, system_prompt="You are a helpful assistant."):
         ]
     }
     try:
-        response = requests.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=data, timeout=80)
-        return response.json()['choices'][0]['message']['content']
-    except:
+        response = requests.post("https://openrouter.ai/api/v1/chat/completions", 
+                                 headers=headers, json=data, timeout=50)
+        
+        log_entry = f"Model: {model_id} | Code: {response.status_code}"
+        st.session_state.debug_log.append(log_entry)
+        
+        if response.status_code == 200:
+            return response.json()['choices'][0]['message']['content']
+        else:
+            st.session_state.debug_log.append(f"ERR: {response.text[:100]}")
+            return None
+    except Exception as e:
+        st.session_state.debug_log.append(f"BOOM: {str(e)}")
         return None
 
 st.title("⚖️ The LLM Council")
-st.write("Expert insights from the council, synthesized by **Kimmy K**.")
 
-user_query = st.text_area("What is your question for the council?", placeholder="Ask anything...", height=100)
+user_query = st.text_input("Ask the Council:", placeholder="Who discovered DNA?")
 
 if st.button("Summon Council"):
-    if not user_query:
-        st.warning("Please enter a question.")
-    else:
-        # Phase 1: The Council Deliberation (Visible to User)
-        st.subheader("🏛️ Council Deliberations")
-        council_data = {}
+    if user_query:
+        st.session_state.debug_log = [] # Reset logs
         
-        # Grid setup (2 rows, 2 columns)
-        rows = [st.columns(2), st.columns(2)]
-        cols = rows[0] + rows[1]
-        
+        # 1. Council Phase
+        council_responses = {}
+        cols = st.columns(4)
         for i, (name, m_id) in enumerate(COUNCIL_MODELS.items()):
             with cols[i]:
-                st.markdown(f"### {name}")
-                with st.status(f"{name} is responding...", expanded=True):
-                    answer = call_llm(m_id, user_query)
-                    if answer:
-                        st.write(answer)
-                        council_data[name] = answer
-                    else:
-                        st.error("Model failed to respond.")
-            time.sleep(1) # Slight pause to help OpenRouter stability
+                st.write(f"**{name}**")
+                res = call_llm(m_id, user_query + " (Answer in exactly 2 lines)")
+                if res:
+                    st.info(res)
+                    council_responses[name] = res
+                else:
+                    st.error("Model Offline")
+            time.sleep(1) # Safety gap
 
-        # Phase 2: Anonymize for the Judge
-        # We strip the real names and replace them with Member Letters
-        judge_payload = f"QUERY: {user_query}\n\n"
-        for i, (name, resp) in enumerate(council_data.items()):
-            letter = chr(65 + i) # A, B, C...
-            judge_payload += f"--- RESPONSE FROM COUNCIL MEMBER {letter} ---\n{resp}\n\n"
-
-        # Phase 3: The Verdict (Kimmy K)
+        # 2. Judge Phase
         st.divider()
-        st.subheader("👨‍⚖️ Final Verdict: Kimmy K (Moonshot)")
+        st.subheader("👨‍⚖️ Kimmy K's Verdict")
         
-        with st.spinner("Kimmy K is analyzing anonymous testimonies..."):
-            judge_sys = "You are Kimmy K, the lead judge. Review the following anonymous responses (Member A, B, etc.) and provide the final definitive answer."
-            verdict = call_llm(PRIMARY_JUDGE, judge_payload, judge_sys)
-            
-            # Fallback Logic
-            if not verdict:
-                st.info("Primary judge is busy. Reaching out to a backup...")
-                for fallback in FALLBACK_JUDGES:
-                    verdict = call_llm(fallback, judge_payload, judge_sys)
-                    if verdict: break
+        combined_text = "Analyze these anonymous replies:\n\n"
+        for i, (name, resp) in enumerate(council_responses.items()):
+            combined_text += f"Member {chr(65+i)}: {resp}\n\n"
+
+        judges_to_try = [PRIMARY_JUDGE] + FALLBACK_JUDGES
+        verdict = None
+
+        with st.status("Judge is deliberating...") as status:
+            for j_id in judges_to_try:
+                status.write(f"Trying {j_id}...")
+                verdict = call_llm(j_id, combined_text, "You are a lead judge. Provide a final summary.")
+                if verdict:
+                    status.update(label="Verdict Ready!", state="complete")
+                    break
+                else:
+                    time.sleep(2)
 
         if verdict:
-            st.markdown(f'<div class="verdict-box">{verdict}</div>', unsafe_allow_html=True)
+            st.success(verdict)
         else:
-            st.error("Could not reach the judge. Please try again in a moment.")
+            st.error("The Judge is unavailable. Check the Debug Sidebar.")
 
-st.sidebar.markdown("""
-### Status
-- **Council:** 4 Active Members
-- **Judge:** Moonshot Kimi K2
-- **Anonymity:** Active ✅
-""")
+# 🔍 Sidebar Debugging
+with st.sidebar:
+    st.header("🔍 System Logs")
+    if st.button("Clear Debug"):
+        st.session_state.debug_log = []
+    for entry in reversed(st.session_state.debug_log):
+        st.text(entry)
