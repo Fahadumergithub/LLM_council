@@ -1,26 +1,25 @@
-# config.py
+import streamlit as st
 
-# Your OpenRouter API Key
-OPENROUTER_API_KEY = "your_api_key_here"
+# 1. API KEY (Set this in Streamlit Cloud Secrets)
+# If running locally, this pulls from .streamlit/secrets.toml
+try:
+    OPENROUTER_API_KEY = st.secrets["OPENROUTER_API_KEY"]
+except:
+    OPENROUTER_API_KEY = "PASTE_YOUR_KEY_HERE_FOR_LOCAL_TESTING"
 
-# The Council: These models provide the initial diverse perspectives
-# Using the latest late-2025 free releases
+# 2. THE COUNCIL (High IQ + Multimodal)
 COUNCIL_MODELS = {
-    "Gemma 3 27B": "google/gemma-3-27b:free",
-    "DeepSeek R1 Chimera": "tngtech/deepseek-r1t2-chimera:free",
-    "Mistral Devstral 2": "mistralai/devstral-2-2512:free"
+    "Gemma 3 (Google)": "google/gemma-3-27b-it:free",
+    "Devstral 2 (Mistral)": "mistralai/devstral-2-2512:free",
+    "R1 Chimera (DeepSeek)": "tngtech/deepseek-r1t2-chimera:free",
+    "MiMo V2 (Xiaomi)": "xiaomi/mimo-v2-flash:free"
 }
 
-# The Judge: Specifically using Kimmy K (Kimi K2) from Moonshot
-PRIMARY_JUDGE = "moonshotai/kimi-k2:free"
+# 3. THE JUDGE (Moonshot Kimi)
+PRIMARY_JUDGE = "moonshotai/kimi-k2-thinking" # High-reasoning expert
 
-# Fallback Judges: Used only if Kimmy K is down. 
-# These are kept separate from the council to ensure a "fresh set of eyes."
+# 4. FALLBACKS (If Kimi is overloaded, use another Reasoning model)
 FALLBACK_JUDGES = [
-    "meta-llama/llama-4-maverick:free",
-    "xiaomi/mimo-v2-flash:free"
+    "xiaomi/mimo-v2-flash:free",
+    "google/gemini-2.0-flash-exp:free"
 ]
-
-# UI Settings
-APP_TITLE = "The LLM Council"
-APP_ICON = "⚖️"
