@@ -1,66 +1,107 @@
 import streamlit as st
-import time
-from config import COUNCIL_MEMBERS, JUDGE_MODEL, call_llm
+import requests
+import json
+from config import OPENROUTER_API_KEY, COUNCIL_MODELS, PRIMARY_JUDGE, FALLBACK_JUDGES
 
-st.set_page_config(page_title="LLM Council", page_icon="🏛️", layout="wide")
+st.set_page_config(page_title="LLM Council", layout="wide")
 
-st.title("🏛️ LLM Council: Power Edition")
-st.markdown("Using the latest **Gemma 3**, **Gemini 2.0**, and **DeepSeek Chimera** models.")
+# --- CSS for the "Previous Version" Look ---
+st.markdown("""
+    <style>
+    .model-card {
+        border-radius: 10px;
+        padding: 15px;
+        background-color: #f0f2f6;
+        margin-bottom: 10px;
+        border-left: 5px solid #4A90E2;
+    }
+    .judge-card {
+        border-radius: 10px;
+        padding: 20px;
+        background-color: #fff4e6;
+        border: 2px solid #ff922b;
+    }
+    </style>
+""", unsafe_allow_html=True)
 
-user_query = st.text_area("📝 Enter your question:", placeholder="Ex: Explain quantum computing like I'm five.")
+def call_llm(model_id, prompt, system_prompt="You are a helpful assistant."):
+    try:
+        response = requests.post(
+            url="https://openrouter.ai/api/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+                "HTTP-Referer": "http://localhost:8501", 
+            },
+            data=json.dumps({
+                "model": model_id,
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": prompt}
+                ]
+            }),
+            timeout=30
+        )
+        return response.json()['choices'][0]['message']['content']
+    except Exception as e:
+        return f"Error: {str(e)}"
 
-if st.button("⚖️ Summon the Council"):
-    if not user_query:
-        st.error("Please enter a question!")
+st.title("⚖️ The LLM Council")
+st.caption("Council Members debate, Moonshot Kimi K2 (Kimmy K) decides.")
+
+user_input = st.text_area("Enter your query:", placeholder="Ask the council anything...")
+
+if st.button("Consult the Council"):
+    if not user_input:
+        st.warning("Please enter a prompt.")
     else:
-        st.subheader("🗣️ The Council is Deliberating...")
-        council_responses = []
+        # 1. Gather Council Responses (Visible to User)
+        st.subheader("🏛️ Council Deliberations")
+        cols = st.columns(len(COUNCIL_MODELS))
+        responses = {}
         
-        # Display in columns
-        cols = st.columns(len(COUNCIL_MEMBERS))
-        
-        for i, member in enumerate(COUNCIL_MEMBERS):
+        for i, (name, model_id) in enumerate(COUNCIL_MODELS.items()):
             with cols[i]:
-                st.markdown(f"**{member['name']}**")
-                with st.spinner("Processing..."):
-                    resp = call_llm(member['id'], user_query)
-                    
-                    if "⚠️" not in resp and "❌" not in resp:
-                        st.success("Success")
-                        st.write(resp)
-                        council_responses.append(f"Model {member['name']}: {resp}")
-                    else:
-                        st.error("Offline")
-                        st.caption(resp)
-            
-            # CRITICAL: 2 second delay between calls to avoid OpenRouter's 20 RPM limit
-            time.sleep(2)
+                with st.status(f"Consulting {name}...", expanded=True):
+                    res = call_llm(model_id, user_input)
+                    responses[name] = res
+                    st.write(res)
 
-        # --- JUDGE PHASE ---
+        # 2. Prepare Anonymized Input for the Judge
+        # We replace model names with "Council Member A, B, C..."
+        anonymized_context = ""
+        for i, (name, res) in enumerate(responses.items()):
+            label = chr(65 + i) # A, B, C...
+            anonymized_context += f"--- COUNCIL MEMBER {label} RESPONSE ---\n{res}\n\n"
+
+        judge_system_prompt = (
+            "You are the Lead Judge, Kimmy K from Moonshot. You will receive several responses "
+            "to a user's prompt from anonymous council members. Your task is to analyze these "
+            "different perspectives, identify the best insights, resolve any contradictions, "
+            "and provide a final, authoritative synthesis for the user. Do not refer to the "
+            "members by name (they are anonymous to you); refer to them as 'Member A', 'Member B', etc."
+        )
+
+        # 3. Call the Judge (with Fallback logic)
         st.divider()
-        st.subheader("⚖️ Lead Judge Verdict")
+        st.subheader("👨‍⚖️ Final Verdict (Kimmy K)")
         
-        if not council_responses:
-            st.warning("No valid responses from council members. The Judge cannot proceed.")
-        else:
-            with st.spinner("The Judge is synthesizing the council's wisdom..."):
-                # Safety wait before Judge call
-                time.sleep(2)
-                
-                context = "\n\n".join(council_responses)
-                judge_prompt = f"""Summarize the following council responses to the question: "{user_query}"
-                
-                COUNCIL OPINIONS:
-                {context}
-                
-                Synthesize a single best answer."""
-                
-                final_answer = call_llm(JUDGE_MODEL, judge_prompt, "You are a lead judge. Give a final, authoritative answer.")
-                
-                if "⚠️" in final_answer or "❌" in final_answer:
-                    st.error("The Judge failed to respond. Try asking a simpler question or waiting a minute.")
-                    st.caption(final_answer)
-                else:
-                    st.success("### 📜 Final Decision")
-                    st.markdown(final_answer)
-                    st.balloons()
+        judge_placeholder = st.empty()
+        with st.spinner("Kimmy K is deliberating..."):
+            # Primary attempt
+            final_verdict = call_llm(PRIMARY_JUDGE, anonymized_context, judge_system_prompt)
+            
+            # Fallback check
+            if "Error" in final_verdict or not final_verdict:
+                st.info("Kimmy K is currently unavailable. Calling a backup judge...")
+                for fallback_id in FALLBACK_JUDGES:
+                    final_verdict = call_llm(fallback_id, anonymized_context, judge_system_prompt)
+                    if "Error" not in final_verdict:
+                        break
+        
+        st.markdown(f"""
+            <div class="judge-card">
+                {final_verdict}
+            </div>
+        """, unsafe_allow_html=True)
+
+st.sidebar.info("Council members are visible to you, but anonymous to Kimmy K to prevent bias.")
