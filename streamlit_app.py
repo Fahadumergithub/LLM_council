@@ -2,111 +2,65 @@ import streamlit as st
 import time
 from config import COUNCIL_MEMBERS, JUDGE_MODEL, call_llm
 
-# 1. Page Configuration
-st.set_page_config(
-    page_title="LLM Council Decision System",
-    page_icon="🏛️",
-    layout="wide"
-)
+st.set_page_config(page_title="LLM Council", page_icon="🏛️", layout="wide")
 
-# 2. UI Styling & Header
-st.title("🏛️ LLM Council Decision System")
-st.markdown("""
-**The Process:** 4 AI models debate your question, and a Lead Judge synthesizes their opinions into a final verdict.
-*Powered by OpenRouter Free Models.*
-""")
-st.divider()
+st.title("🏛️ LLM Council: Power Edition")
+st.markdown("Using the latest **Gemma 3**, **Gemini 2.0**, and **DeepSeek Chimera** models.")
 
-# 3. Sidebar Configuration
-with st.sidebar:
-    st.header("Council Status")
-    for member in COUNCIL_MEMBERS:
-        st.write(f"✅ {member['name']} (Active)")
-    st.info("Note: Using free models may occasionally result in slower response times.")
-    if st.button("Reset Session"):
-        st.rerun()
+user_query = st.text_area("📝 Enter your question:", placeholder="Ex: Explain quantum computing like I'm five.")
 
-# 4. User Input Area
-user_query = st.text_area(
-    "📝 Enter your question or problem for the Council:",
-    placeholder="Example: Should I invest in learning AI coding or traditional software engineering?",
-    height=100
-)
-
-# 5. The Logic Flow
-if st.button("⚖️ Convene the Council"):
+if st.button("⚖️ Summon the Council"):
     if not user_query:
-        st.warning("Please enter a question for the council to consider.")
+        st.error("Please enter a question!")
     else:
-        # --- STEP 1: COUNCIL DELIBERATION ---
-        st.subheader("🗣️ Step 1: Council Members Responding...")
-        
-        # We store valid responses here for the judge to read later
+        st.subheader("🗣️ The Council is Deliberating...")
         council_responses = []
         
-        # Create a grid for the 4 models
-        col1, col2 = st.columns(2)
-        cols = [col1, col2, col1, col2] # Alternating layout
-        
-        progress_bar = st.progress(0)
+        # Display in columns
+        cols = st.columns(len(COUNCIL_MEMBERS))
         
         for i, member in enumerate(COUNCIL_MEMBERS):
             with cols[i]:
-                with st.expander(f"Opinion from {member['name']}", expanded=True):
-                    with st.spinner(f"Querying {member['name']}..."):
-                        response = call_llm(member['id'], user_query)
-                        
-                        # Filter out errors so they don't confuse the Judge
-                        if "Error" in response or "⚠️" in response or "Failed" in response:
-                            st.error(f"Member Offline: {member['name']}")
-                            st.caption(response) # Show small error for debugging
-                        else:
-                            st.write(response)
-                            council_responses.append({
-                                "name": member['name'],
-                                "opinion": response
-                            })
+                st.markdown(f"**{member['name']}**")
+                with st.spinner("Processing..."):
+                    resp = call_llm(member['id'], user_query)
+                    
+                    if "⚠️" not in resp and "❌" not in resp:
+                        st.success("Success")
+                        st.write(resp)
+                        council_responses.append(f"Model {member['name']}: {resp}")
+                    else:
+                        st.error("Offline")
+                        st.caption(resp)
             
-            # Progress update
-            progress_bar.progress((i + 1) / len(COUNCIL_MEMBERS))
-            
-            # CRITICAL: 1.5s delay to prevent the "429 Too Many Requests" error
-            time.sleep(1.5)
+            # CRITICAL: 2 second delay between calls to avoid OpenRouter's 20 RPM limit
+            time.sleep(2)
 
-        # --- STEP 2: THE JUDGE'S VERDICT ---
+        # --- JUDGE PHASE ---
         st.divider()
-        st.subheader("⚖️ Step 2: The Judge's Final Verdict")
-
-        if len(council_responses) == 0:
-            st.error("Total Failure: All council members are currently offline or rate-limited. Please try again in 1 minute.")
+        st.subheader("⚖️ Lead Judge Verdict")
+        
+        if not council_responses:
+            st.warning("No valid responses from council members. The Judge cannot proceed.")
         else:
-            # Build the context for the judge
-            judge_context = "\n\n".join([f"MODEL {r['name']} OPINION:\n{r['opinion']}" for r in council_responses])
-            
-            judge_prompt = f"""
-            You are the Lead Judge of a high-level AI council. 
-            Below are opinions from different AI models regarding this question: "{user_query}"
-            
-            --- COUNCIL DATA ---
-            {judge_context}
-            --- END DATA ---
-            
-            Your task:
-            1. Summarize the key points of agreement.
-            2. Highlight any major contradictions between the models.
-            3. Provide a final, definitive recommendation to the user based on the collective wisdom provided.
-            """
-
-            with st.spinner("The Judge is synthesizing the council's arguments..."):
-                final_decision = call_llm(JUDGE_MODEL, judge_prompt, "You are a wise Lead Judge. Be decisive and helpful.")
+            with st.spinner("The Judge is synthesizing the council's wisdom..."):
+                # Safety wait before Judge call
+                time.sleep(2)
                 
-            if "Error" in final_decision:
-                st.error("The Judge was unable to reach a verdict. Please try again.")
-            else:
-                st.success("### 📜 The Official Verdict")
-                st.markdown(final_decision)
-                st.balloons()
-
-# 6. Footer
-st.markdown("---")
-st.caption("LLM Council Prototype • Created for 'Vibe Coding' Experimentation")
+                context = "\n\n".join(council_responses)
+                judge_prompt = f"""Summarize the following council responses to the question: "{user_query}"
+                
+                COUNCIL OPINIONS:
+                {context}
+                
+                Synthesize a single best answer."""
+                
+                final_answer = call_llm(JUDGE_MODEL, judge_prompt, "You are a lead judge. Give a final, authoritative answer.")
+                
+                if "⚠️" in final_answer or "❌" in final_answer:
+                    st.error("The Judge failed to respond. Try asking a simpler question or waiting a minute.")
+                    st.caption(final_answer)
+                else:
+                    st.success("### 📜 Final Decision")
+                    st.markdown(final_answer)
+                    st.balloons()
