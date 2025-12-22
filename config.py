@@ -6,19 +6,20 @@ import time
 OPENROUTER_API_KEY = st.secrets["OPENROUTER_API_KEY"]
 BASE_URL = "https://openrouter.ai/api/v1/chat/completions"
 
-# The Council Members (Free Models)
+# THE LLM COUNCIL - Updated for late 2024/2025 availability
+# Note: I removed the 3.1 and Qwen 72b tags as they are causing your 404s.
 COUNCIL_MEMBERS = [
-    {"name": "Llama 3.1", "id": "meta-llama/llama-3.1-8b-instruct:free"},
+    {"name": "Gemini Flash", "id": "google/gemini-2.0-flash-exp:free"},
+    {"name": "Llama 3.2", "id": "meta-llama/llama-3.2-3b-instruct:free"},
     {"name": "Mistral 7B", "id": "mistralai/mistral-7b-instruct:free"},
-    {"name": "Qwen 2.5", "id": "qwen/qwen-2.5-72b-instruct:free"},
-    {"name": "Gemma 2", "id": "google/gemma-2-9b-it:free"}
+    {"name": "Phi-3 Mini", "id": "microsoft/phi-3-mini-128k-instruct:free"}
 ]
 
-# The Judge (Usually a smart model to synthesize information)
-JUDGE_MODEL = "meta-llama/llama-3.1-8b-instruct:free"
+# The Judge (Using the most reliable model for synthesis)
+JUDGE_MODEL = "google/gemini-2.0-flash-exp:free"
 
 def call_llm(model_id, prompt, system_prompt="You are a helpful assistant."):
-    """Helper function to call OpenRouter with retries for free tier stability."""
+    """Enhanced caller with error catching for 'vibe coding' stability."""
     headers = {
         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
         "HTTP-Referer": "https://github.com/Fahadumergithub/LLM_council",
@@ -33,17 +34,27 @@ def call_llm(model_id, prompt, system_prompt="You are a helpful assistant."):
         ]
     }
 
-    for attempt in range(3):  # Try 3 times
+    for attempt in range(2): # Quick retry
         try:
-            response = requests.post(BASE_URL, headers=headers, json=payload)
+            response = requests.post(BASE_URL, headers=headers, json=payload, timeout=30)
+            result = response.json()
+            
             if response.status_code == 200:
-                return response.json()['choices'][0]['message']['content']
+                # OpenRouter sometimes returns an error inside a 200 response
+                if 'choices' in result:
+                    return result['choices'][0]['message']['content']
+                else:
+                    return f"API logic error: {result.get('error', {}).get('message', 'Unknown error')}"
+            
+            elif response.status_code == 404:
+                return "⚠️ Model Offline: This free model was recently removed from OpenRouter."
             elif response.status_code == 429:
-                time.sleep(3)  # Wait 3 seconds if rate limited
+                time.sleep(2) # Rate limit wait
+                continue
             else:
                 return f"Error {response.status_code}: {response.text}"
+                
         except Exception as e:
-            time.sleep(2)
-            continue
+            return f"Connection issues: {str(e)}"
             
-    return "The model is currently busy. Please try again in a moment."
+    return "Council member is silent (timeout)."
