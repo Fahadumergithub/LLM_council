@@ -69,7 +69,7 @@ REASONING: Response C provided the most comprehensive answer because..."""
     messages = [{"role": "user", "content": ranking_prompt}]
     chairman_response = await query_model(CHAIRMAN_MODEL, messages, timeout=90.0)
     
-    if not chairman_response or "content" in chairman_response and not chairman_response["content"]:
+    if not chairman_response or "content" not in chairman_response or not chairman_response["content"]:
         return None, anonymous_responses
     
     return chairman_response["content"], anonymous_responses
