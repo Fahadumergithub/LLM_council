@@ -6,20 +6,23 @@ import time
 OPENROUTER_API_KEY = st.secrets["OPENROUTER_API_KEY"]
 BASE_URL = "https://openrouter.ai/api/v1/chat/completions"
 
-# THE LLM COUNCIL - Updated for late 2024/2025 availability
-# Note: I removed the 3.1 and Qwen 72b tags as they are causing your 404s.
+# THE POWER COUNCIL - Current Top Tier Free Models (late 2025)
 COUNCIL_MEMBERS = [
-    {"name": "Gemini Flash", "id": "google/gemini-2.0-flash-exp:free"},
-    {"name": "Llama 3.2", "id": "meta-llama/llama-3.2-3b-instruct:free"},
-    {"name": "Mistral 7B", "id": "mistralai/mistral-7b-instruct:free"},
-    {"name": "Phi-3 Mini", "id": "microsoft/phi-3-mini-128k-instruct:free"}
+    # 1. Multimodal / Ultra Fast
+    {"name": "Gemini 2.0 Flash", "id": "google/gemini-2.0-flash-exp:free"},
+    # 2. Brand New / Multimodal (Google's latest open model)
+    {"name": "Gemma 3 27B", "id": "google/gemma-3-27b:free"},
+    # 3. High IQ / Reasoning (Comparable to Claude 3.5 Sonnet)
+    {"name": "MiMo V2 Flash", "id": "xiaomi/mimo-v2-flash:free"},
+    # 4. Expert Reasoning (DeepSeek architecture)
+    {"name": "DeepSeek Chimera", "id": "tngtech/deepseek-r1t2-chimera:free"}
 ]
 
-# The Judge (Using the most reliable model for synthesis)
+# The Judge (Reliable & Intelligent)
 JUDGE_MODEL = "google/gemini-2.0-flash-exp:free"
 
 def call_llm(model_id, prompt, system_prompt="You are a helpful assistant."):
-    """Enhanced caller with error catching for 'vibe coding' stability."""
+    """Robust caller with increased timeouts and retries for free tier."""
     headers = {
         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
         "HTTP-Referer": "https://github.com/Fahadumergithub/LLM_council",
@@ -34,27 +37,29 @@ def call_llm(model_id, prompt, system_prompt="You are a helpful assistant."):
         ]
     }
 
-    for attempt in range(2): # Quick retry
+    # Free tier can be flaky, so we try 3 times with longer waits
+    for attempt in range(3):
         try:
-            response = requests.post(BASE_URL, headers=headers, json=payload, timeout=30)
-            result = response.json()
+            # Increased timeout to 45 seconds to prevent 'silent' errors
+            response = requests.post(BASE_URL, headers=headers, json=payload, timeout=45)
             
             if response.status_code == 200:
-                # OpenRouter sometimes returns an error inside a 200 response
+                result = response.json()
                 if 'choices' in result:
                     return result['choices'][0]['message']['content']
-                else:
-                    return f"API logic error: {result.get('error', {}).get('message', 'Unknown error')}"
+                return f"⚠️ Error: No content returned from {model_id}"
             
-            elif response.status_code == 404:
-                return "⚠️ Model Offline: This free model was recently removed from OpenRouter."
             elif response.status_code == 429:
-                time.sleep(2) # Rate limit wait
+                time.sleep(5) # Wait 5 seconds if rate limited
                 continue
+            elif response.status_code == 404:
+                return f"⚠️ 404: {model_id} is currently offline."
             else:
-                return f"Error {response.status_code}: {response.text}"
+                return f"⚠️ Status {response.status_code}: {response.text}"
                 
         except Exception as e:
-            return f"Connection issues: {str(e)}"
+            time.sleep(2)
+            if attempt == 2:
+                return f"❌ Connection Error: {str(e)}"
             
-    return "Council member is silent (timeout)."
+    return "❌ All retry attempts failed (The model is likely overloaded)."
