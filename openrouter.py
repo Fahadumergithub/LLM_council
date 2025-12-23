@@ -1,54 +1,29 @@
-import httpx
-from config import OPENROUTER_API_KEY, OPENROUTER_API_URL
+import requests
+from config import OPENROUTER_API_KEY
 
-HEADERS = {
-    "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-    "Content-Type": "application/json",
-    "HTTP-Referer": "https://streamlit.io",
-    "X-Title": "LLM Council Prototype"
-}
+OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
 
 
-async def query_model(model: str, messages: list, timeout: float = 60.0):
-    """
-    Query a single model via OpenRouter.
-    """
-
-    if not OPENROUTER_API_KEY:
-        print("❌ API key is missing!")
-        return {"error": "API key not configured"}
+def call_openrouter(model, messages, temperature=0.2):
+    headers = {
+        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+        "Content-Type": "application/json",
+        "HTTP-Referer": "http://localhost",
+        "X-Title": "LLM Council"
+    }
 
     payload = {
         "model": model,
         "messages": messages,
-        "temperature": 0.7
+        "temperature": temperature
     }
 
-    try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            response = await client.post(
-                OPENROUTER_API_URL,
-                headers=HEADERS,
-                json=payload
-            )
+    response = requests.post(
+        OPENROUTER_API_URL,
+        headers=headers,
+        json=payload,
+        timeout=60
+    )
 
-        print(f"📡 Status Code: {response.status_code}")
-        print(f"📡 Response: {response.text[:500]}")  # First 500 chars
-        
-        if response.status_code != 200:
-            error_msg = response.text
-            print(f"❌ Error Response: {error_msg}")
-            return {"error": f"API returned status {response.status_code}: {error_msg}"}
-
-        data = response.json()
-
-        return {
-            "content": data["choices"][0]["message"]["content"]
-        }
-
-    except httpx.TimeoutException:
-        print("❌ Request timed out")
-        return {"error": "Request timed out after 60 seconds"}
-    except Exception as e:
-        print(f"❌ Exception occurred: {type(e).__name__}: {str(e)}")
-        return {"error": f"Exception: {str(e)}"}
+    response.raise_for_status()
+    return response.json()["choices"][0]["message"]["content"]
