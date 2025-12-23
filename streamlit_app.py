@@ -1,95 +1,84 @@
 import streamlit as st
 import requests
 import time
-from config import OPENROUTER_API_KEY, COUNCIL_MODELS, PRIMARY_JUDGE, FALLBACK_JUDGES
+import base64
+from config import OPENROUTER_API_KEY, VISION_HEROES, LOGIC_HEROES, PRIMARY_JUDGE, FALLBACK_JUDGES
 
-st.set_page_config(page_title="LLM Council", layout="wide")
+st.set_page_config(page_title="Avengers Tactical Council", page_icon="💥", layout="wide")
 
-# Persistent Debug Log
-if "debug_log" not in st.session_state:
-    st.session_state.debug_log = []
+# Avengers Theme CSS
+st.markdown("""
+    <style>
+    .stApp { background-color: #050A0E; color: #E7E7E7; }
+    h1 { color: #F0131E !important; font-family: 'Arial Black', sans-serif; text-transform: uppercase; text-align: center; }
+    .hero-card { background: linear-gradient(145deg, #1e2639, #0b0930); border: 2px solid #4D8AB5; border-radius: 10px; padding: 15px; margin-bottom: 10px; min-height: 200px; }
+    .verdict-shield { background: rgba(11, 9, 48, 0.9); border: 3px solid #F0131E; border-radius: 15px; padding: 20px; box-shadow: 0 0 20px rgba(240, 19, 30, 0.4); }
+    </style>
+""", unsafe_allow_html=True)
 
-def call_llm(model_id, prompt, system_prompt="You are a helpful assistant."):
-    headers = {
-        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-        "Content-Type": "application/json",
-        "HTTP-Referer": "https://llm-council.streamlit.app"
-    }
-    data = {
-        "model": model_id,
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": prompt}
-        ]
-    }
+def encode_file(uploaded_file):
+    if uploaded_file:
+        b64 = base64.b64encode(uploaded_file.read()).decode('utf-8')
+        return f"data:{uploaded_file.type};base64,{b64}"
+    return None
+
+def call_llm(model_id, content, system_prompt="Tactical Advisor."):
+    headers = {"Authorization": f"Bearer {OPENROUTER_API_KEY}", "Content-Type": "application/json"}
+    payload = {"model": model_id, "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": content}]}
     try:
-        response = requests.post("https://openrouter.ai/api/v1/chat/completions", 
-                                 headers=headers, json=data, timeout=50)
-        
-        log_entry = f"Model: {model_id} | Code: {response.status_code}"
-        st.session_state.debug_log.append(log_entry)
-        
-        if response.status_code == 200:
-            return response.json()['choices'][0]['message']['content']
-        else:
-            st.session_state.debug_log.append(f"ERR: {response.text[:100]}")
-            return None
-    except Exception as e:
-        st.session_state.debug_log.append(f"BOOM: {str(e)}")
-        return None
+        r = requests.post("https://openrouter.ai/api/v1/chat/completions", json=payload, headers=headers, timeout=60)
+        return r.json()['choices'][0]['message']['content'] if r.status_code == 200 else None
+    except: return None
 
-st.title("⚖️ The LLM Council")
+st.markdown("<h1>💥 AVENGERS TACTICAL COUNCIL 💥</h1>")
 
-user_query = st.text_input("Ask the Council:", placeholder="Who discovered DNA?")
+with st.container():
+    col_in, col_at = st.columns([3, 1])
+    user_query = col_in.text_input("GIVE THE COMMAND:", placeholder="Identify threat or analyze PDF...")
+    uploaded_file = col_at.file_uploader("📂 ATTACHMENT", type=["png", "jpg", "pdf"])
 
-if st.button("Summon Council"):
+if st.button("COUNCIL: ASSEMBLE!"):
     if user_query:
-        st.session_state.debug_log = [] # Reset logs
+        # Step 1: Smart Model Selection
+        is_image = uploaded_file and "image" in uploaded_file.type
+        # If it's an image, use Vision heroes + top Logic heroes. If text/PDF, use all.
+        active_council = {**VISION_HEROES, **LOGIC_HEROES}
         
-        # 1. Council Phase
-        council_responses = {}
-        cols = st.columns(4)
-        for i, (name, m_id) in enumerate(COUNCIL_MODELS.items()):
+        # Step 2: Prepare Payload
+        file_url = encode_file(uploaded_file)
+        content_payload = [{"type": "text", "text": f"{user_query} (Brief 2-line response)"}]
+        
+        if uploaded_file:
+            if is_image:
+                content_payload.append({"type": "image_url", "image_url": {"url": file_url}})
+            else: # PDF
+                content_payload.append({"type": "file", "file": {"name": uploaded_file.name, "data": file_url}})
+
+        # Step 3: Execution
+        results = {}
+        cols = st.columns(len(active_council))
+        for i, (name, m_id) in enumerate(active_council.items()):
             with cols[i]:
-                st.write(f"**{name}**")
-                res = call_llm(m_id, user_query + " (Answer in exactly 2 lines)")
-                if res:
-                    st.info(res)
-                    council_responses[name] = res
-                else:
-                    st.error("Model Offline")
-            time.sleep(1) # Safety gap
+                st.markdown(f"<div class='hero-card'><h4>{name}</h4>", unsafe_allow_html=True)
+                with st.spinner("Analyzing..."):
+                    res = call_llm(m_id, content_payload)
+                    if res:
+                        st.info(res)
+                        results[name] = res
+                    else: st.error("OFFLINE")
+                st.markdown("</div>", unsafe_allow_html=True)
+            time.sleep(1)
 
-        # 2. Judge Phase
+        # Step 4: Final Verdict
         st.divider()
-        st.subheader("👨‍⚖️ Kimmy K's Verdict")
+        judge_prompt = "Compare these hero reports and give the final tactical plan:\n\n" + "\n".join([f"{k}: {v}" for k,v in results.items()])
         
-        combined_text = "Analyze these anonymous replies:\n\n"
-        for i, (name, resp) in enumerate(council_responses.items()):
-            combined_text += f"Member {chr(65+i)}: {resp}\n\n"
-
-        judges_to_try = [PRIMARY_JUDGE] + FALLBACK_JUDGES
-        verdict = None
-
-        with st.status("Judge is deliberating...") as status:
-            for j_id in judges_to_try:
-                status.write(f"Trying {j_id}...")
-                verdict = call_llm(j_id, combined_text, "You are a lead judge. Provide a final summary.")
-                if verdict:
-                    status.update(label="Verdict Ready!", state="complete")
-                    break
-                else:
-                    time.sleep(2)
-
-        if verdict:
-            st.success(verdict)
-        else:
-            st.error("The Judge is unavailable. Check the Debug Sidebar.")
-
-# 🔍 Sidebar Debugging
-with st.sidebar:
-    st.header("🔍 System Logs")
-    if st.button("Clear Debug"):
-        st.session_state.debug_log = []
-    for entry in reversed(st.session_state.debug_log):
-        st.text(entry)
+        with st.status("Judge Kimmy K is deliberating...") as status:
+            final = None
+            for j_id in [PRIMARY_JUDGE] + FALLBACK_JUDGES:
+                final = call_llm(j_id, [{"type": "text", "text": judge_prompt}])
+                if final: break
+            
+            if final:
+                st.markdown(f"<div class='verdict-shield'><h3>👨‍⚖️ THE VERDICT</h3>{final}</div>", unsafe_allow_html=True)
+                st.balloons()
