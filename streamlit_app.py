@@ -1,6 +1,8 @@
 import streamlit as st
 import requests
 import time
+import base64
+import io
 from PIL import Image
 import PyPDF2
 from config import OPENROUTER_API_KEY, COUNCIL_MODELS, PRIMARY_JUDGE, FALLBACK_JUDGES
@@ -13,6 +15,14 @@ st.title("⚖️ The LLM Council")
 # -----------------------------
 if "debug_log" not in st.session_state:
     st.session_state.debug_log = []
+
+# -----------------------------
+# Multimodal Capability Map
+# -----------------------------
+MULTIMODAL_MODELS = [
+    "google/gemma-3-27b-it:free",
+    "moonshotai/kimi-k2:free"
+]
 
 # -----------------------------
 # LLM Call
@@ -38,13 +48,13 @@ def call_llm(model_id, messages):
         )
 
         st.session_state.debug_log.append(
-            f"Model: {model_id} | Status: {response.status_code}"
+            f"{model_id} | {response.status_code}"
         )
 
         if response.status_code == 200:
             return response.json()["choices"][0]["message"]["content"]
         else:
-            st.session_state.debug_log.append(response.text[:120])
+            st.session_state.debug_log.append(response.text[:150])
             return None
 
     except Exception as e:
@@ -56,7 +66,7 @@ def call_llm(model_id, messages):
 # -----------------------------
 user_query = st.text_area(
     "Ask the Council",
-    height=100,
+    height=110,
     placeholder="Enter your question here"
 )
 
@@ -70,15 +80,22 @@ uploaded_files = st.file_uploader(
 )
 
 extracted_text = ""
+image_payloads = []
 
 if uploaded_files:
     st.subheader("📎 Attachments")
+
     for file in uploaded_files:
         st.write(f"**{file.name}**")
 
         if file.type.startswith("image/"):
             img = Image.open(file)
             st.image(img, width=280)
+
+            buffer = io.BytesIO()
+            img.save(buffer, format="PNG")
+            img_b64 = base64.b64encode(buffer.getvalue()).decode()
+            image_payloads.append(img_b64)
 
         elif file.type == "application/pdf":
             reader = PyPDF2.PdfReader(file)
@@ -113,48 +130,62 @@ if st.button("Summon Council"):
     for i, (name, model_id) in enumerate(COUNCIL_MODELS.items()):
         with cols[i]:
             st.markdown(f"**{name}**")
-            with st.spinner("Thinking..."):
-                response = call_llm(
-                    model_id,
-                    messages=[
-                        {"role": "system", "content": "You are an expert advisor. Respond concisely and clearly."},
-                        {"role": "user", "content": full_prompt}
-                    ]
-                )
+
+            messages = [
+                {"role": "system", "content": "You are an expert advisor. Respond clearly and concisely."},
+                {"role": "user", "content": full_prompt}
+            ]
+
+            if image_payloads:
+                if model_id in MULTIMODAL_MODELS:
+                    for img in image_payloads:
+                        messages.append({
+                            "role": "user",
+                            "content": [
+                                {"type": "input_text", "text": "Analyse the following image."},
+                                {"type": "input_image", "image_base64": img}
+                            ]
+                        })
+                else:
+                    st.warning("⚠️ This model cannot analyse images.")
+
+            with st.spinner("Deliberating..."):
+                response = call_llm(model_id, messages)
+
             if response:
                 st.info(response)
                 council_outputs.append(response)
             else:
                 st.error("Model unavailable")
 
-        time.sleep(1)  # rate safety
+        time.sleep(1)
 
     # -----------------------------
-    # Judge Phase (Anonymous)
+    # Chairman Phase (Anonymous)
     # -----------------------------
     st.divider()
-    st.subheader("👨‍⚖️ Chairman’s Synthesis")
+    st.subheader("👨‍⚖️ Chairman’s Verdict")
 
-    anonymous_bundle = (
+    synthesis_prompt = (
         "You are the chairman of an expert council.\n"
-        "Below are independent expert opinions provided anonymously.\n"
+        "The following opinions were provided independently and anonymously.\n"
         "Synthesize them into a single, balanced, and well-reasoned response.\n\n"
     )
 
     for idx, text in enumerate(council_outputs, start=1):
-        anonymous_bundle += f"Expert {idx}:\n{text}\n\n"
+        synthesis_prompt += f"Expert {idx}:\n{text}\n\n"
 
     verdict = None
-    judges_to_try = [PRIMARY_JUDGE] + FALLBACK_JUDGES
+    judges = [PRIMARY_JUDGE] + FALLBACK_JUDGES
 
-    with st.status("Chairman is deliberating...", expanded=True) as status:
-        for judge in judges_to_try:
+    with st.status("Chairman deliberating...", expanded=True) as status:
+        for judge in judges:
             status.write(f"Consulting {judge}")
             verdict = call_llm(
                 judge,
                 messages=[
                     {"role": "system", "content": "You are a senior judge synthesising expert opinions."},
-                    {"role": "user", "content": anonymous_bundle}
+                    {"role": "user", "content": synthesis_prompt}
                 ]
             )
             if verdict:
@@ -165,7 +196,7 @@ if st.button("Summon Council"):
     if verdict:
         st.success(verdict)
     else:
-        st.error("Chairman unavailable. See system logs.")
+        st.error("Chairman unavailable. See logs.")
 
 # -----------------------------
 # Debug Sidebar
@@ -176,4 +207,3 @@ with st.sidebar:
         st.session_state.debug_log = []
     for entry in reversed(st.session_state.debug_log):
         st.text(entry)
-
