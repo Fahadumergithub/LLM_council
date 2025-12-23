@@ -1,25 +1,70 @@
 import streamlit as st
-from openrouter import call_openrouter
-from config import COUNCIL_MODELS, PRIMARY_JUDGE, FALLBACK_JUDGES
+import requests
+import time
 from PIL import Image
 import PyPDF2
+from config import OPENROUTER_API_KEY, COUNCIL_MODELS, PRIMARY_JUDGE, FALLBACK_JUDGES
 
 st.set_page_config(page_title="LLM Council", layout="wide")
-st.title("🧠 LLM Council")
+st.title("⚖️ The LLM Council")
 
 # -----------------------------
-# User Question
+# Persistent Debug Log
 # -----------------------------
-user_question = st.text_area(
-    "Enter your question",
-    height=120
+if "debug_log" not in st.session_state:
+    st.session_state.debug_log = []
+
+# -----------------------------
+# LLM Call
+# -----------------------------
+def call_llm(model_id, messages):
+    headers = {
+        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+        "Content-Type": "application/json",
+        "HTTP-Referer": "https://llm-council.streamlit.app"
+    }
+
+    payload = {
+        "model": model_id,
+        "messages": messages
+    }
+
+    try:
+        response = requests.post(
+            "https://openrouter.ai/api/v1/chat/completions",
+            headers=headers,
+            json=payload,
+            timeout=60
+        )
+
+        st.session_state.debug_log.append(
+            f"Model: {model_id} | Status: {response.status_code}"
+        )
+
+        if response.status_code == 200:
+            return response.json()["choices"][0]["message"]["content"]
+        else:
+            st.session_state.debug_log.append(response.text[:120])
+            return None
+
+    except Exception as e:
+        st.session_state.debug_log.append(str(e))
+        return None
+
+# -----------------------------
+# User Input
+# -----------------------------
+user_query = st.text_area(
+    "Ask the Council",
+    height=100,
+    placeholder="Enter your question here"
 )
 
 # -----------------------------
 # Attachments
 # -----------------------------
 uploaded_files = st.file_uploader(
-    "Attach files (PDF, images, text)",
+    "Attach supporting material (PDF, images, text)",
     type=["pdf", "png", "jpg", "jpeg", "txt"],
     accept_multiple_files=True
 )
@@ -28,13 +73,12 @@ extracted_text = ""
 
 if uploaded_files:
     st.subheader("📎 Attachments")
-
     for file in uploaded_files:
         st.write(f"**{file.name}**")
 
         if file.type.startswith("image/"):
-            image = Image.open(file)
-            st.image(image, width=300)
+            img = Image.open(file)
+            st.image(img, width=280)
 
         elif file.type == "application/pdf":
             reader = PyPDF2.PdfReader(file)
@@ -45,48 +89,91 @@ if uploaded_files:
             extracted_text += file.read().decode("utf-8") + "\n"
 
 # -----------------------------
-# Ask Council
+# Summon Council
 # -----------------------------
-if st.button("Ask LLM Council"):
-    if not user_question.strip() and not extracted_text.strip():
+if st.button("Summon Council"):
+    if not user_query.strip() and not extracted_text.strip():
         st.warning("Please enter a question or attach a file.")
         st.stop()
 
-    with st.spinner("Council is deliberating..."):
+    st.session_state.debug_log = []
 
-        base_prompt = user_question
-        if extracted_text:
-            base_prompt += "\n\nAttached material:\n" + extracted_text
+    full_prompt = user_query
+    if extracted_text:
+        full_prompt += "\n\nSupporting material:\n" + extracted_text
 
-        council_outputs = []
+    # -----------------------------
+    # Council Phase
+    # -----------------------------
+    st.subheader("🧠 Council Deliberation")
 
-        for name, model in COUNCIL_MODELS.items():
-            response = call_openrouter(
-                model,
-                messages=[{"role": "user", "content": base_prompt}]
+    council_outputs = []
+    cols = st.columns(len(COUNCIL_MODELS))
+
+    for i, (name, model_id) in enumerate(COUNCIL_MODELS.items()):
+        with cols[i]:
+            st.markdown(f"**{name}**")
+            with st.spinner("Thinking..."):
+                response = call_llm(
+                    model_id,
+                    messages=[
+                        {"role": "system", "content": "You are an expert advisor. Respond concisely and clearly."},
+                        {"role": "user", "content": full_prompt}
+                    ]
+                )
+            if response:
+                st.info(response)
+                council_outputs.append(response)
+            else:
+                st.error("Model unavailable")
+
+        time.sleep(1)  # rate safety
+
+    # -----------------------------
+    # Judge Phase (Anonymous)
+    # -----------------------------
+    st.divider()
+    st.subheader("👨‍⚖️ Chairman’s Synthesis")
+
+    anonymous_bundle = (
+        "You are the chairman of an expert council.\n"
+        "Below are independent expert opinions provided anonymously.\n"
+        "Synthesize them into a single, balanced, and well-reasoned response.\n\n"
+    )
+
+    for idx, text in enumerate(council_outputs, start=1):
+        anonymous_bundle += f"Expert {idx}:\n{text}\n\n"
+
+    verdict = None
+    judges_to_try = [PRIMARY_JUDGE] + FALLBACK_JUDGES
+
+    with st.status("Chairman is deliberating...", expanded=True) as status:
+        for judge in judges_to_try:
+            status.write(f"Consulting {judge}")
+            verdict = call_llm(
+                judge,
+                messages=[
+                    {"role": "system", "content": "You are a senior judge synthesising expert opinions."},
+                    {"role": "user", "content": anonymous_bundle}
+                ]
             )
-            council_outputs.append((name, response))
+            if verdict:
+                status.update(label="Verdict ready", state="complete")
+                break
+            time.sleep(2)
 
-        judge_prompt = (
-            "You are the judge of an expert council.\n"
-            "Your task is to synthesise the following expert opinions into a single, "
-            "clear, balanced, and well-reasoned answer.\n\n"
-        )
+    if verdict:
+        st.success(verdict)
+    else:
+        st.error("Chairman unavailable. See system logs.")
 
-        for name, text in council_outputs:
-            judge_prompt += f"{name}:\n{text}\n\n"
+# -----------------------------
+# Debug Sidebar
+# -----------------------------
+with st.sidebar:
+    st.header("🔍 System Logs")
+    if st.button("Clear Logs"):
+        st.session_state.debug_log = []
+    for entry in reversed(st.session_state.debug_log):
+        st.text(entry)
 
-        try:
-            final_answer = call_openrouter(
-                PRIMARY_JUDGE,
-                messages=[{"role": "user", "content": judge_prompt}]
-            )
-        except:
-            fallback = FALLBACK_JUDGES[0]
-            final_answer = call_openrouter(
-                fallback,
-                messages=[{"role": "user", "content": judge_prompt}]
-            )
-
-    st.subheader("✅ Final Judgement")
-    st.write(final_answer)
